@@ -44,10 +44,16 @@ import android.content.Context
 import android.util.Log
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.ui.unit.DpOffset
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import androidx.compose.ui.graphics.asImageBitmap
 
 import com.google.firebase.auth.FirebaseUser
 
 sealed class Screen(val route: String) {
+    object Greeting : Screen("greeting")
     object Login : Screen("login")
     object Register : Screen("register")
     object RekomendasiTempat : Screen("rekomendasi_tempat")
@@ -76,8 +82,17 @@ fun AppNavigation(currentUser: FirebaseUser?) {
     val navController = rememberNavController()
     NavHost(
         navController = navController,
-        startDestination = if (currentUser != null) Screen.RekomendasiTempat.route else Screen.Login.route
+        startDestination = if (currentUser != null) Screen.RekomendasiTempat.route else Screen.Greeting.route
     ){
+        composable(Screen.Greeting.route) {
+            GreetingScreen(
+                onStart = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.Greeting.route) { inclusive = true }
+                    }
+                }
+            )
+        }
         composable(Screen.Login.route) {
             LoginScreen(
                 onLoginSuccess = {
@@ -109,7 +124,7 @@ fun AppNavigation(currentUser: FirebaseUser?) {
                 userEmail = user?.email,
                 onBackToLogin = {
                     FirebaseAuth.getInstance().signOut()
-                    navController.navigate(Screen.Login.route) {
+                    navController.navigate(Screen.Greeting.route) {
                         popUpTo(Screen.RekomendasiTempat.route) { inclusive = true }
                     }
                 }
@@ -312,15 +327,19 @@ fun RegisterScreen(
 
 
 @Composable
-fun GreetingScreen(){
+fun GreetingScreen(
+    onStart: () -> Unit
+) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
-    ){
+    ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
-        ){
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
             Text(
                 text = "Selamat Datang di Travelupa!",
                 style = MaterialTheme.typography.h4,
@@ -336,8 +355,11 @@ fun GreetingScreen(){
             )
         }
         Button(
-            onClick = {/*TODO*/},
-            modifier = Modifier.width(360.dp).align(Alignment.BottomCenter).padding(bottom = 16.dp)
+            onClick = onStart,
+            modifier = Modifier
+                .width(360.dp)
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
         ) {
             Text(text = "Mulai")
         }
@@ -348,8 +370,37 @@ data class TempatWisata(
     val nama: String = "",
     val deskripsi: String = "",
     val gambarUriString: String? = null,
-    val gambarResId: Int? = null
+    val gambarResId: Int? = null,
+    val gambarBase64: String? = null
 )
+
+fun uriToBase64(context: Context, uri: Uri): String? {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri)
+        val bitmap = BitmapFactory.decodeStream(inputStream)
+        val outputStream = ByteArrayOutputStream()
+        
+        // Compress image to reduce size (JPEG, 50% quality)
+        // Adjust quality as needed to ensures size < 1MB (Firestore limit)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 50, outputStream)
+        
+        val byteArray = outputStream.toByteArray()
+        Base64.encodeToString(byteArray, Base64.DEFAULT)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
+
+fun base64ToBitmap(base64String: String): Bitmap? {
+    return try {
+        val decodedBytes = Base64.decode(base64String, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
 
 fun uploadImageToFirestore(
     firestore: FirebaseFirestore,
@@ -359,8 +410,16 @@ fun uploadImageToFirestore(
     onSuccess: (TempatWisata) -> Unit,
     onFailure: (Exception) -> Unit
 ) {
+    // Convert URI to Base64
+    val base64Image = uriToBase64(context, gambarUri)
+    
     // Save document to Firestore using the name as ID
-    val newTempat = tempatWisata.copy(gambarUriString = gambarUri.toString())
+    // We save both URI (local reference) and Base64 (cloud storage equivalent)
+    val newTempat = tempatWisata.copy(
+        gambarUriString = gambarUri.toString(),
+        gambarBase64 = base64Image
+    )
+    
     firestore.collection("tempat_wisata").document(newTempat.nama)
         .set(newTempat)
         .addOnSuccessListener { onSuccess(newTempat) }
@@ -481,12 +540,16 @@ fun TempatItemEditable(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Image(
-                        painter = tempat.gambarUriString?.let { uriString ->
-                            rememberAsyncImagePainter(
-                                ImageRequest.Builder(LocalContext.current)
-                                    .data(Uri.parse(uriString))
-                                    .build()
-                            )
+                        painter = tempat.gambarBase64?.let { base64 ->
+                            base64ToBitmap(base64)?.let { bitmap ->
+                                rememberAsyncImagePainter(model = bitmap)
+                            }
+                        } ?: tempat.gambarUriString?.let { uriString ->
+                             rememberAsyncImagePainter(
+                                 ImageRequest.Builder(LocalContext.current)
+                                     .data(Uri.parse(uriString))
+                                     .build()
+                             )
                         } ?: tempat.gambarResId?.let {
                             painterResource(id = it)
                         } ?: painterResource(id = R.drawable.default_image),
