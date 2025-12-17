@@ -45,6 +45,8 @@ import android.util.Log
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.ui.unit.DpOffset
 
+import com.google.firebase.auth.FirebaseUser
+
 sealed class Screen(val route: String) {
     object Login : Screen("login")
     object Register : Screen("register")
@@ -55,13 +57,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         FirebaseApp.initializeApp(this)
         enableEdgeToEdge()
+        val currentUser: FirebaseUser? = FirebaseAuth.getInstance().currentUser
         setContent {
             TravelupaTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colors.background
                 ) {
-                    AppNavigation()
+                    AppNavigation(currentUser)
                 }
             }
         }
@@ -69,11 +72,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(currentUser: FirebaseUser?) {
     val navController = rememberNavController()
     NavHost(
         navController = navController,
-        startDestination = Screen.Login.route
+        startDestination = if (currentUser != null) Screen.RekomendasiTempat.route else Screen.Login.route
     ){
         composable(Screen.Login.route) {
             LoginScreen(
@@ -100,9 +103,15 @@ fun AppNavigation() {
             )
         }
         composable(Screen.RekomendasiTempat.route){
+            // Get fresh user data directly
+            val user = FirebaseAuth.getInstance().currentUser
             RekomendasiTempatScreen(
+                userEmail = user?.email,
                 onBackToLogin = {
-                    navController.navigateUp()
+                    FirebaseAuth.getInstance().signOut()
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.RekomendasiTempat.route) { inclusive = true }
+                    }
                 }
             )
         }
@@ -360,26 +369,55 @@ fun uploadImageToFirestore(
 
 @Composable
 fun RekomendasiTempatScreen(
+    userEmail: String? = null,
     onBackToLogin: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val firestore = FirebaseFirestore.getInstance()
-    var daftarTempatWisata by remember { mutableStateOf(listOf(
-        TempatWisata(
-            "Tumpak Sewu",
-            "Air terjun tercantik di Jawa Timur.",
-            gambarResId = R.drawable.tumpaksewu
-        ),
-        TempatWisata(
-            "Gunung Bromo",
-            "Matahari terbitnya bagus banget." ,
-            gambarResId = R.drawable.gunungbromo
-        )
-    )) }
+    var daftarTempatWisata by remember { mutableStateOf(listOf<TempatWisata>()) }
+
+    // Fetch data from Firestore
+    LaunchedEffect(Unit) {
+        firestore.collection("tempat_wisata")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    Log.w("RekomendasiTempat", "Listen failed.", e)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null) {
+                    val places = snapshot.documents.mapNotNull { doc ->
+                        doc.toObject(TempatWisata::class.java)
+                    }
+                    daftarTempatWisata = places
+                }
+            }
+    }
 
     var showTambahDialog by remember { mutableStateOf(false) }
 
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("Travelupa")
+                        if (userEmail != null) {
+                            Text(
+                                text = "Halo, $userEmail",
+                                style = MaterialTheme.typography.caption,
+                                color = Color.White
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    TextButton(onClick = onBackToLogin) {
+                        Text("Logout", color = Color.White)
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showTambahDialog = true },
@@ -412,9 +450,7 @@ fun RekomendasiTempatScreen(
                 context = context,
                 onDismiss = { showTambahDialog = false },
                 onTambah = { nama, deskripsi, uriString ->
-                    // Local state update if needed, but optimally we listen to Firestore
-                    val nuevoTempat = TempatWisata(nama, deskripsi, uriString)
-                    daftarTempatWisata = daftarTempatWisata + nuevoTempat
+                    // Removed manual local update to avoid duplication with Firestore listener
                     showTambahDialog = false
                 }
             )
