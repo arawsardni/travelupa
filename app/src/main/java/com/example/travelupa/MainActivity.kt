@@ -29,19 +29,278 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import androidx.compose.foundation.clickable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.FirebaseApp
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.ui.graphics.Color
+import com.google.firebase.firestore.FirebaseFirestore
+import android.content.Context
+import android.util.Log
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.ui.unit.DpOffset
 
-
+sealed class Screen(val route: String) {
+    object Login : Screen("login")
+    object Register : Screen("register")
+    object RekomendasiTempat : Screen("rekomendasi_tempat")
+}
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        FirebaseApp.initializeApp(this)
         enableEdgeToEdge()
         setContent {
             TravelupaTheme {
-                RekomendasiTempatScreen()
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colors.background
+                ) {
+                    AppNavigation()
+                }
             }
         }
     }
 }
+
+@Composable
+fun AppNavigation() {
+    val navController = rememberNavController()
+    NavHost(
+        navController = navController,
+        startDestination = Screen.Login.route
+    ){
+        composable(Screen.Login.route) {
+            LoginScreen(
+                onLoginSuccess = {
+                    navController.navigate(Screen.RekomendasiTempat.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                    }
+                },
+                onRegisterClick = {
+                    navController.navigate(Screen.Register.route)
+                }
+            )
+        }
+        composable(Screen.Register.route) {
+            RegisterScreen(
+                onRegisterSuccess = {
+                    navController.navigate(Screen.RekomendasiTempat.route) {
+                        popUpTo(Screen.Register.route) { inclusive = true }
+                    }
+                },
+                onBackToLogin = {
+                    navController.navigateUp()
+                }
+            )
+        }
+        composable(Screen.RekomendasiTempat.route){
+            RekomendasiTempatScreen(
+                onBackToLogin = {
+                    navController.navigateUp()
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun LoginScreen(
+    onLoginSuccess: () -> Unit,
+    onRegisterClick: () -> Unit
+){
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        OutlinedTextField(
+            value = email,
+            onValueChange = {
+                email = it
+                errorMessage = null
+            },
+            label = { Text("Email") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = {
+                password = it
+                errorMessage = null
+            },
+            label = { Text("Password") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = {
+                if (email.isBlank() || password.isBlank()) {
+                    errorMessage = "Please enter email and password"
+                    return@Button
+                }
+
+                isLoading = true
+                errorMessage = null
+
+                coroutineScope.launch {
+                    try {
+                        // Firebase Authentication
+                        val authResult = withContext(Dispatchers.IO) {
+                            FirebaseAuth.getInstance().signInWithEmailAndPassword(email, password).await()
+                        }
+                        isLoading = false
+                        onLoginSuccess()
+                    } catch (e: Exception) {
+                        isLoading = false
+                        errorMessage = "Login failed: ${e.localizedMessage}"
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        ){
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color.White
+                )
+            } else {
+                Text("Login")
+            }
+        }
+
+        errorMessage?.let {
+            Text(
+                text = it,
+                color = Color.Red,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+        
+        TextButton(onClick = onRegisterClick) {
+            Text("Belum punya akun? Daftar")
+        }
+    }
+}
+
+
+@Composable
+fun RegisterScreen(
+    onRegisterSuccess: () -> Unit,
+    onBackToLogin: () -> Unit
+) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "Daftar Akun Baru",
+            style = MaterialTheme.typography.h5,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        OutlinedTextField(
+            value = email,
+            onValueChange = {
+                email = it
+                errorMessage = null
+            },
+            label = { Text("Email") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = {
+                password = it
+                errorMessage = null
+            },
+            label = { Text("Password") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = {
+                if (email.isBlank() || password.isBlank()) {
+                    errorMessage = "Please enter email and password"
+                    return@Button
+                }
+
+                isLoading = true
+                errorMessage = null
+
+                coroutineScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, password).await()
+                        }
+                        isLoading = false
+                        onRegisterSuccess()
+                    } catch (e: Exception) {
+                        isLoading = false
+                        errorMessage = "Registration failed: ${e.localizedMessage}"
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !isLoading
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color.White
+                )
+            } else {
+                Text("Daftar")
+            }
+        }
+
+        errorMessage?.let {
+            Text(
+                text = it,
+                color = Color.Red,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+
+        TextButton(onClick = onBackToLogin) {
+            Text("Sudah punya akun? Login")
+        }
+    }
+}
+
 
 @Composable
 fun GreetingScreen(){
@@ -77,14 +336,34 @@ fun GreetingScreen(){
 }
 
 data class TempatWisata(
-    val nama: String,
-    val deskripsi: String,
+    val nama: String = "",
+    val deskripsi: String = "",
     val gambarUriString: String? = null,
     val gambarResId: Int? = null
 )
 
+fun uploadImageToFirestore(
+    firestore: FirebaseFirestore,
+    context: Context,
+    gambarUri: Uri,
+    tempatWisata: TempatWisata,
+    onSuccess: (TempatWisata) -> Unit,
+    onFailure: (Exception) -> Unit
+) {
+    // Save document to Firestore using the name as ID
+    val newTempat = tempatWisata.copy(gambarUriString = gambarUri.toString())
+    firestore.collection("tempat_wisata").document(newTempat.nama)
+        .set(newTempat)
+        .addOnSuccessListener { onSuccess(newTempat) }
+        .addOnFailureListener { onFailure(it) }
+}
+
 @Composable
-fun RekomendasiTempatScreen() {
+fun RekomendasiTempatScreen(
+    onBackToLogin: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val firestore = FirebaseFirestore.getInstance()
     var daftarTempatWisata by remember { mutableStateOf(listOf(
         TempatWisata(
             "Tumpak Sewu",
@@ -129,11 +408,13 @@ fun RekomendasiTempatScreen() {
         // Dialog Tambah Tempat Wisata
         if (showTambahDialog) {
             TambahTempatWisataDialog(
+                firestore = firestore,
+                context = context,
                 onDismiss = { showTambahDialog = false },
-                onTambah = { nama, deskripsi, gambarUri ->
-                    val uriString = gambarUri?.toString() ?: ""
+                onTambah = { nama, deskripsi, uriString ->
+                    // Local state update if needed, but optimally we listen to Firestore
                     val nuevoTempat = TempatWisata(nama, deskripsi, uriString)
-                        daftarTempatWisata = daftarTempatWisata + nuevoTempat
+                    daftarTempatWisata = daftarTempatWisata + nuevoTempat
                     showTambahDialog = false
                 }
             )
@@ -146,6 +427,9 @@ fun TempatItemEditable(
     tempat: TempatWisata,
     onDelete: () -> Unit
 ) {
+    val firestore = FirebaseFirestore.getInstance()
+    var expanded by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -160,8 +444,6 @@ fun TempatItemEditable(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    // Tampilkan gambar dari URI string atau resource ID
-
                     Image(
                         painter = tempat.gambarUriString?.let { uriString ->
                             rememberAsyncImagePainter(
@@ -189,12 +471,32 @@ fun TempatItemEditable(
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "Hapus Tempat Wisata",
-                        tint = MaterialTheme.colors.error
-                    )
+                Box {
+                    IconButton(onClick = { expanded = true }) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More options"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        offset = DpOffset((-40).dp, 0.dp)
+                    ) {
+                        DropdownMenuItem(onClick = {
+                            expanded = false
+                            firestore.collection("tempat_wisata").document(tempat.nama)
+                                .delete()
+                                .addOnSuccessListener {
+                                    onDelete()
+                                }
+                                .addOnFailureListener { e ->
+                                    Log.w("TempatItemEditable", "Error deleting document", e)
+                                }
+                        }) {
+                            Text("Delete")
+                        }
+                    }
                 }
             }
         }
@@ -203,18 +505,22 @@ fun TempatItemEditable(
 
 @Composable
 fun TambahTempatWisataDialog(
+    firestore: FirebaseFirestore,
+    context: Context,
     onDismiss: () -> Unit,
     onTambah: (String, String, String?) -> Unit
 ) {
     var nama by remember { mutableStateOf("") }
     var deskripsi by remember { mutableStateOf("") }
     var gambarUri by remember { mutableStateOf<Uri?>(null) }
+    var isUploading by remember { mutableStateOf(false) }
 
     val gambarLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         gambarUri = uri
     }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Tambah Tempat Wisata Baru") },
@@ -224,16 +530,17 @@ fun TambahTempatWisataDialog(
                     value = nama,
                     onValueChange = { nama = it },
                     label = { Text("Nama Tempat") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isUploading
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 TextField(
                     value = deskripsi,
                     onValueChange = { deskripsi = it },
                     label = { Text("Deskripsi") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isUploading
                 )
-
                 Spacer(modifier = Modifier.height(8.dp))
 
                 gambarUri?.let { uri ->
@@ -250,7 +557,8 @@ fun TambahTempatWisataDialog(
 
                 Button(
                     onClick = { gambarLauncher.launch("image/*") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isUploading
                 ) {
                     Text("Pilih Gambar")
                 }
@@ -259,18 +567,43 @@ fun TambahTempatWisataDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (nama.isNotBlank() && deskripsi.isNotBlank()) {
-                        onTambah(nama, deskripsi, gambarUri?.toString())
+                    if (nama.isNotBlank() && deskripsi.isNotBlank() && gambarUri != null) {
+                        isUploading = true
+                        val tempatWisata = TempatWisata(nama, deskripsi)
+                        uploadImageToFirestore(
+                            firestore,
+                            context,
+                            gambarUri!!,
+                            tempatWisata,
+                            onSuccess = { uploadedTempat ->
+                                isUploading = false
+                                onTambah(nama, deskripsi, uploadedTempat.gambarUriString)
+                                onDismiss()
+                            },
+                            onFailure = { e ->
+                                isUploading = false
+                                Log.e("TambahDialog", "Error uploading", e)
+                            }
+                        )
                     }
-                }
+                },
+                enabled = !isUploading
             ) {
-                Text("Tambah")
+                if (isUploading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White
+                    )
+                } else {
+                    Text("Tambah")
+                }
             }
-                        },
+        },
         dismissButton = {
             Button(
                 onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.surface)
+                colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.surface),
+                enabled = !isUploading
             ) {
                 Text("Batal")
             }
@@ -286,7 +619,7 @@ fun GambarPicker(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth()
-        ){
+    ){
         // Tampilkan gambar jika sudah dipilih
         gambarUri?.let { uri ->
             Image(
@@ -297,10 +630,10 @@ fun GambarPicker(
                 ),
                 contentDescription = "Gambar Tempat Wisata",
                 modifier = Modifier
-                        .size(200.dp)
-                        .clickable { onPilihGambar() },
+                    .size(200.dp)
+                    .clickable { onPilihGambar() },
                 contentScale = ContentScale.Crop
-                )
+            )
         } ?: run {
             OutlinedButton(
                 onClick = onPilihGambar,
