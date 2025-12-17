@@ -1,36 +1,34 @@
 package com.example.travelupa
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
-import com.example.travelupa.ui.theme.TravelupaTheme
 import androidx.compose.ui.unit.dp
+import androidx.activity.ComponentActivity
+import android.os.Bundle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.text.style.TextAlign
+import com.example.travelupa.ui.theme.TravelupaTheme
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.background
 import androidx.compose.runtime.*
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.rememberAsyncImagePainter
+import coil.request.ImageRequest
+import androidx.compose.foundation.clickable
 
 
 class MainActivity : ComponentActivity() {
@@ -46,22 +44,6 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    TravelupaTheme {
-        Greeting("Android")
-    }
-}
-
-@Composable
 fun GreetingScreen(){
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -73,7 +55,7 @@ fun GreetingScreen(){
         ){
             Text(
                 text = "Selamat Datang di Travelupa!",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.h4,
                 textAlign = TextAlign.Center
             )
 
@@ -81,7 +63,7 @@ fun GreetingScreen(){
 
             Text(
                 text = "Solusi buat kamu yang lupa kemana-mana",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.h6,
                 textAlign = TextAlign.Center
             )
         }
@@ -94,115 +76,240 @@ fun GreetingScreen(){
     }
 }
 
-data class TempatWisata(val nama: String, val deskripsi: String, val gambar: Int)
-
-val daftarTempatWisata = listOf(
-    TempatWisata(
-        "Tumpak Sewu",
-        "Air terjun tercantik di Jawa Timur.",
-        R.drawable.tumpaksewu),
-    TempatWisata(
-        "Gunung Bromo",
-        "Matahari terbitnya bagus banget.",
-        R.drawable.gunungbromo)
+data class TempatWisata(
+    val nama: String,
+    val deskripsi: String,
+    val gambarUriString: String? = null,
+    val gambarResId: Int? = null
 )
 
 @Composable
-fun RekomendasiTempatScreen(){
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ){
-        items(daftarTempatWisata) {
-            tempat -> TempatItem(tempat)
+fun RekomendasiTempatScreen() {
+    var daftarTempatWisata by remember { mutableStateOf(listOf(
+        TempatWisata(
+            "Tumpak Sewu",
+            "Air terjun tercantik di Jawa Timur.",
+            gambarResId = R.drawable.tumpaksewu
+        ),
+        TempatWisata(
+            "Gunung Bromo",
+            "Matahari terbitnya bagus banget." ,
+            gambarResId = R.drawable.gunungbromo
+        )
+    )) }
+
+    var showTambahDialog by remember { mutableStateOf(false) }
+
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { showTambahDialog = true },
+                backgroundColor = MaterialTheme.colors.primary
+            ){
+                Icon(Icons.Filled.Add, contentDescription = "Tambah Tempat Wisata")
+            }
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .padding(paddingValues)
+                .padding(16.dp)
+        ){
+            LazyColumn {
+                items(daftarTempatWisata) { tempat ->
+                    TempatItemEditable(
+                        tempat = tempat,
+                        onDelete = {
+                            daftarTempatWisata = daftarTempatWisata.filter { it != tempat }
+                        }
+                    )
+                }
+            }
+        }
+        // Dialog Tambah Tempat Wisata
+        if (showTambahDialog) {
+            TambahTempatWisataDialog(
+                onDismiss = { showTambahDialog = false },
+                onTambah = { nama, deskripsi, gambarUri ->
+                    val uriString = gambarUri?.toString() ?: ""
+                    val nuevoTempat = TempatWisata(nama, deskripsi, uriString)
+                        daftarTempatWisata = daftarTempatWisata + nuevoTempat
+                    showTambahDialog = false
+                }
+            )
         }
     }
 }
 
 @Composable
-fun TempatItem(tempat: TempatWisata){
+fun TempatItemEditable(
+    tempat: TempatWisata,
+    onDelete: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
-            .background(MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ){
-        Column(modifier = Modifier.padding(16.dp)){
-            Image(
-                painter = painterResource(id = tempat.gambar),
-                contentDescription = tempat.nama,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                    contentScale = ContentScale.Crop
-            )
-            Text(
-                text = tempat.nama,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            Text(
-                text = tempat.deskripsi,
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            .background(MaterialTheme.colors.surface),
+        elevation = 4.dp
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    // Tampilkan gambar dari URI string atau resource ID
+
+                    Image(
+                        painter = tempat.gambarUriString?.let { uriString ->
+                            rememberAsyncImagePainter(
+                                ImageRequest.Builder(LocalContext.current)
+                                    .data(Uri.parse(uriString))
+                                    .build()
+                            )
+                        } ?: tempat.gambarResId?.let {
+                            painterResource(id = it)
+                        } ?: painterResource(id = R.drawable.default_image),
+                        contentDescription = tempat.nama,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                    Text(
+                        text = tempat.nama,
+                        style = MaterialTheme.typography.h6,
+                        modifier = Modifier.padding(bottom = 8.dp, top = 12.dp)
+                    )
+                    Text(
+                        text = tempat.deskripsi,
+                        style = MaterialTheme.typography.body2,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "Hapus Tempat Wisata",
+                        tint = MaterialTheme.colors.error
+                    )
+                }
+            }
         }
     }
 }
 
-//@Composable
-//fun RekomendasiTempatScreen(){
-//    var daftarTempatWisata by remember { mutableStateOf(listOf(
-//        TempatWisata(
-//            "Tumpak Sewu",
-//            "Air terjun tercantik di Jawa Timur.",
-//            R.drawable.tumpaksewu),
-//        TempatWisata(
-//            "Gunung Bromo",
-//            "Matahari terbitnya bagus banget.",
-//            R.drawable.gunungbromo)
-//    )) }
-//
-//    var showTambahDialog by remember { mutableStateOf(false) }
-//
-//    Scaffold(
-//        floatingButtonAction = {
-//            FloatingActionButton(
-//                onClick = { showTambahDialog = true },
-//                backgroundColor = MaterialTheme.colorScheme.primary
-//            ) {
-//                Icon(Icons.Filled.Add, contentDescription = "Tambah Tempat Wisata")
-//            }
-//        }
-//    ){ paddingValues ->
-//        Column(
-//            modifier = Modifier
-//                .padding(paddingValues)
-//                .padding(16.dp)
-//        ){
-//            LazyColumn{
-//                items(daftarTempatWisata){ tempat ->
-//                    TempatItemEditable(
-//                        tempat = tempat,
-//                        onDelete = {
-//                            daftarTempatWisata = daftarTempatWisata.filter { it != tempat }
-//
-//                        }
-//                    )
-//                }
-//            }
-//        }
-//
-//        if(showTambahDialog){
-//            TambahTempatWisataDialog(
-//                onDismiss = { showTambahDialog = false },
-//                onTambah = { nama, deskripsi, gambar ->
-//                    val nuevoTempat = TempatWisata(nama, deskripsi, gambar)
-//                    daftarTempatWisata =
-//                }
-//            )
-//        }
+@Composable
+fun TambahTempatWisataDialog(
+    onDismiss: () -> Unit,
+    onTambah: (String, String, String?) -> Unit
+) {
+    var nama by remember { mutableStateOf("") }
+    var deskripsi by remember { mutableStateOf("") }
+    var gambarUri by remember { mutableStateOf<Uri?>(null) }
 
-//    }
-//}
+    val gambarLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        gambarUri = uri
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Tambah Tempat Wisata Baru") },
+        text = {
+            Column {
+                TextField(
+                    value = nama,
+                    onValueChange = { nama = it },
+                    label = { Text("Nama Tempat") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextField(
+                    value = deskripsi,
+                    onValueChange = { deskripsi = it },
+                    label = { Text("Deskripsi") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                gambarUri?.let { uri ->
+                    Image(
+                        painter = rememberAsyncImagePainter(uri),
+                        contentDescription = "Gambar yang dipilih",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = { gambarLauncher.launch("image/*") },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Pilih Gambar")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (nama.isNotBlank() && deskripsi.isNotBlank()) {
+                        onTambah(nama, deskripsi, gambarUri?.toString())
+                    }
+                }
+            ) {
+                Text("Tambah")
+            }
+                        },
+        dismissButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.surface)
+            ) {
+                Text("Batal")
+            }
+        }
+    )
+}
+
+@Composable
+fun GambarPicker(
+    gambarUri: Uri?,
+    onPilihGambar: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth()
+        ){
+        // Tampilkan gambar jika sudah dipilih
+        gambarUri?.let { uri ->
+            Image(
+                painter = rememberAsyncImagePainter(
+                    ImageRequest.Builder(LocalContext.current)
+                        .data(uri)
+                        .build()
+                ),
+                contentDescription = "Gambar Tempat Wisata",
+                modifier = Modifier
+                        .size(200.dp)
+                        .clickable { onPilihGambar() },
+                contentScale = ContentScale.Crop
+                )
+        } ?: run {
+            OutlinedButton(
+                onClick = onPilihGambar,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = "Pilih Gambar")
+                Spacer (modifier = Modifier.width(8.dp))
+                Text("Pilih Gambar")
+            }
+        }
+    }
+}
