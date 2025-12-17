@@ -38,6 +38,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import androidx.room.Room
+import java.io.File
 import androidx.compose.ui.graphics.Color
 import com.google.firebase.firestore.FirebaseFirestore
 import android.content.Context
@@ -410,20 +413,56 @@ fun uploadImageToFirestore(
     onSuccess: (TempatWisata) -> Unit,
     onFailure: (Exception) -> Unit
 ) {
-    // Convert URI to Base64
-    val base64Image = uriToBase64(context, gambarUri)
-    
-    // Save document to Firestore using the name as ID
-    // We save both URI (local reference) and Base64 (cloud storage equivalent)
-    val newTempat = tempatWisata.copy(
-        gambarUriString = gambarUri.toString(),
-        gambarBase64 = base64Image
-    )
-    
-    firestore.collection("tempat_wisata").document(newTempat.nama)
-        .set(newTempat)
-        .addOnSuccessListener { onSuccess(newTempat) }
-        .addOnFailureListener { onFailure(it) }
+    // Initialize Room Database
+    val db = Room.databaseBuilder(
+        context,
+        AppDatabase::class.java, "travelupa-database"
+    ).build()
+    val imageDao = db.imageDao()
+
+    CoroutineScope(Dispatchers.IO).launch {
+        try {
+            val localPath = saveImageLocally(context, gambarUri)
+            
+            val imageEntity = ImageEntity(localPath = localPath, tempatWisataId = tempatWisata.nama)
+            imageDao.insert(imageEntity)
+
+            val updatedTempatWisata = tempatWisata.copy(
+                gambarUriString = localPath,
+                gambarBase64 = null
+            )
+            
+
+            firestore.collection("tempat_wisata").document(updatedTempatWisata.nama)
+                .set(updatedTempatWisata)
+                .addOnSuccessListener {
+                    onSuccess(updatedTempatWisata)
+                }
+                .addOnFailureListener { e ->
+                    onFailure(e)
+                }
+        } catch (e: Exception) {
+             onFailure(e)
+        }
+    }
+}
+
+fun saveImageLocally(context: Context, uri: Uri): String {
+    try {
+        val inputStream = context.contentResolver.openInputStream(uri)
+        val file = File(context.filesDir, "image_${System.currentTimeMillis()}.jpg")
+        
+        inputStream?.use { input ->
+            file.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        Log.d("ImageSave", "Image saved successfully to: ${file.absolutePath}")
+        return file.absolutePath
+    } catch (e: Exception) {
+        Log.e("ImageSave", "Error saving image", e)
+        throw e
+    }
 }
 
 @Composable
